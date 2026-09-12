@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# large media / model files — fetched by scripts, not committed
+data/
+*.mp4
+*.avi
+*.pt
+*.pth
+
+# keep small validation outputs, ignore large intermediate artifacts
+results/*.mp4
+results/cache/
+
+.DS_Store
+.pytest_cache/
+.ipynb_checkpoints/

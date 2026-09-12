@@ -1,0 +1,29 @@
+[project]
+name = "roadside-headway"
+version = "0.1.0"
+description = "Estimate vehicle headway/spacing from fixed roadside camera footage using 2D detection, monocular depth, ground-plane homography, and tracking."
+requires-python = ">=3.10"
+dependencies = [
+    "ultralytics>=8.3.0",
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "transformers>=4.44.0",
+    "opencv-python>=4.9.0",
+    "numpy>=1.26.0,<2.0.0",
+    "pandas>=2.2.0",
+    "scipy>=1.12.0",
+    "matplotlib>=3.8.0",
+    "requests>=2.31.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
