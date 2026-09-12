@@ -92,7 +92,10 @@ def fetch_trajectory_csv(
 def list_video_attachments() -> list[dict]:
     resp = requests.get(f"{SOCRATA_BASE}/api/views/{US101_VIDEO_VIEW}.json", timeout=60)
     resp.raise_for_status()
-    return resp.json().get("attachments", [])
+    data = resp.json()
+    # Attachments live under metadata.attachments, not top-level `attachments`
+    # (checked directly against the live endpoint).
+    return data.get("attachments") or data.get("metadata", {}).get("attachments", [])
 
 
 def fetch_video(filename: str, out_path: Path) -> None:

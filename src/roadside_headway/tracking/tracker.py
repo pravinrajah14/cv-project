@@ -10,13 +10,17 @@ class VehicleTracker:
 
     Call `track_frame` once per frame in order (it maintains internal state);
     call `reset()` before starting a new video.
+
+    Defaults match `detection.detector.VehicleDetector` — see its docstring
+    for why yolo11n (nano) doesn't work on NGSIM's steep overhead camera angle
+    and yolo11s (small) at a low confidence threshold does.
     """
 
     def __init__(
         self,
-        model_name: str = "yolo11n.pt",
+        model_name: str = "yolo11s.pt",
         device: str = "mps",
-        conf: float = 0.25,
+        conf: float = 0.1,
         tracker_cfg: str = "bytetrack.yaml",
     ):
         from ultralytics import YOLO  # imported lazily so this module stays testable without ultralytics installed

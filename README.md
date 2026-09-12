@@ -19,7 +19,7 @@ this idea.
 ```
 video frame
    │
-   ├─► YOLO11n detector (car/truck/bus/motorcycle)
+   ├─► YOLO11s detector (car/truck/bus/motorcycle)
    │        │
    │        ▼
    ├─► ByteTrack (Ultralytics built-in) ──► per-vehicle track IDs across frames
@@ -180,6 +180,17 @@ was set. Numbers land in `results/metrics.json` — not just plots.
 
 Read before trusting any number this pipeline produces:
 
+- **"Off-the-shelf" needed real tuning to work on this camera angle.**
+  Stock `yolo11n` (nano), COCO-pretrained, essentially detects *nothing* on
+  NGSIM's overhead camera view — confirmed directly: at confidence 0.05 it
+  found zero vehicle boxes on a real frame with ~15 visible vehicles, only
+  spurious `person`/`boat` guesses. `yolo11s` (small) at a lower confidence
+  threshold (0.1) does detect vehicles reasonably. This isn't a fine-tuned
+  model — both are stock COCO weights — but it's a real reminder that "2D
+  detector + monocular depth, off-the-shelf" doesn't mean *any* off-the-shelf
+  checkpoint works unmodified on an unusual camera angle; the working
+  configuration was found empirically against this dataset (see
+  `detection/detector.py`) and may need re-tuning for different footage.
 - **NGSIM ground truth itself is noisy.** Reported errors are a floor, not a
   clean measure of pipeline error alone.
 - **Planar-homography assumption.** Any road grade or calibration-point error

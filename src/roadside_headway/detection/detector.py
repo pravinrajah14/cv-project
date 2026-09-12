@@ -31,9 +31,17 @@ class VehicleDetector:
     Used directly for calibration/inspection tooling. The main pipeline uses
     `tracking.tracker.VehicleTracker` instead, which wraps the same model with
     persistent ID tracking across frames.
+
+    Defaults were tuned empirically against the NGSIM overhead camera view:
+    yolo11n (nano) essentially fails to detect any vehicles at all from this
+    steep top-down angle (cars are ~15-30px, and COCO's training distribution
+    is overwhelmingly street-level/oblique views) — yolo11s (small) at a low
+    confidence threshold does detect them, still comfortably lightweight on an
+    M3. Different footage (resolution, camera angle, vehicle size) may need
+    re-tuning; see README limitations.
     """
 
-    def __init__(self, model_name: str = "yolo11n.pt", device: str = "mps", conf: float = 0.25):
+    def __init__(self, model_name: str = "yolo11s.pt", device: str = "mps", conf: float = 0.1):
         from ultralytics import YOLO  # imported lazily so this module stays testable without ultralytics installed
 
         self.model = YOLO(model_name)
