@@ -98,7 +98,7 @@ def list_video_attachments() -> list[dict]:
     return data.get("attachments") or data.get("metadata", {}).get("attachments", [])
 
 
-def fetch_video(filename: str, out_path: Path) -> None:
+def fetch_video(filename: str, out_path: Path, retries: int = 5) -> None:
     attachments = list_video_attachments()
     match = next((a for a in attachments if a["filename"] == filename), None)
     if match is None:
@@ -108,18 +108,36 @@ def fetch_video(filename: str, out_path: Path) -> None:
     url = f"{SOCRATA_BASE}/api/views/{US101_VIDEO_VIEW}/files/{match['assetId']}"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = out_path.with_suffix(out_path.suffix + ".part")
-    with requests.get(url, params={"download": "true", "filename": filename}, stream=True, timeout=600) as resp:
-        resp.raise_for_status()
-        total = int(resp.headers.get("Content-Length", 0))
-        written = 0
-        with tmp_path.open("wb") as f:
-            for chunk in resp.iter_content(chunk_size=1 << 20):
-                f.write(chunk)
-                written += len(chunk)
-                if total:
-                    print(f"\r  {written / 1e6:.1f} / {total / 1e6:.1f} MB", end="")
-    print()
-    tmp_path.replace(out_path)
+
+    for attempt in range(retries):
+        resume_from = tmp_path.stat().st_size if tmp_path.exists() else 0
+        headers = {"Range": f"bytes={resume_from}-"} if resume_from else {}
+        try:
+            with requests.get(
+                url, params={"download": "true", "filename": filename}, headers=headers, stream=True, timeout=120
+            ) as resp:
+                if resume_from and resp.status_code == 200:
+                    # server ignored the Range request -- start over rather than corrupt the file
+                    resume_from = 0
+                    tmp_path.unlink(missing_ok=True)
+                resp.raise_for_status()
+                total = resume_from + int(resp.headers.get("Content-Length", 0))
+                written = resume_from
+                mode = "ab" if resume_from else "wb"
+                with tmp_path.open(mode) as f:
+                    for chunk in resp.iter_content(chunk_size=1 << 20):
+                        f.write(chunk)
+                        written += len(chunk)
+                        if total:
+                            print(f"\r  {written / 1e6:.1f} / {total / 1e6:.1f} MB", end="")
+            print()
+            tmp_path.replace(out_path)
+            return
+        except requests.exceptions.RequestException as exc:
+            wait_s = 2**attempt
+            print(f"\n  download interrupted ({exc.__class__.__name__}); resuming in {wait_s}s...")
+            time.sleep(wait_s)
+    raise RuntimeError(f"Giving up on {filename} after {retries} attempts")
 
 
 def main() -> None:
