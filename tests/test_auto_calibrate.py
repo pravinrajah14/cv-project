@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from roadside_headway.calibration.homography import Homography
 from roadside_headway.evaluation.auto_calibrate import fit_homography_by_matching, resolve_direction_ambiguity
@@ -49,8 +50,6 @@ def test_fit_homography_by_matching_recovers_known_transform_with_noise_and_dist
 
 
 def test_fit_homography_by_matching_requires_minimum_points():
-    import pytest
-
     with pytest.raises(ValueError):
         fit_homography_by_matching({0: [(0, 0), (1, 1)]}, {0: [(0, 0), (1, 1)]})
 
@@ -72,6 +71,14 @@ def test_resolve_direction_ambiguity_flips_when_tracks_move_backward():
 
     xs = [fixed.pixel_to_world(p)[0] for p in track_pixel_sequences[1]]
     assert xs[-1] > xs[0]  # now moves toward increasing world_x
+
+    # Direction must flip WITHOUT shifting the absolute coordinate range —
+    # a plain negation would reverse direction correctly but also move
+    # everything into negative territory, breaking comparison against a
+    # ground truth that uses absolute (positive) positions.
+    original_range = sorted(wx for wx, _ in backward_homography.dest_points)
+    fixed_range = sorted(wx for wx, _ in fixed.dest_points)
+    assert fixed_range == pytest.approx(original_range)
 
 
 def test_resolve_direction_ambiguity_leaves_correct_homography_unchanged():

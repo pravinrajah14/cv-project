@@ -139,5 +139,11 @@ def resolve_direction_ambiguity(
     if not signs or sum(signs) >= 0:
         return homography
 
-    flipped_world = [(-wx, wy) for wx, wy in homography.dest_points]
+    # Reflect world_x about its own mean, not the origin: negating outright
+    # would reverse direction correctly but also shift the whole coordinate
+    # range (e.g. matched points around x=350 would become x=-350) — wrong
+    # for comparison against a ground truth that uses absolute positions.
+    world_xs = [wx for wx, _wy in homography.dest_points]
+    center = sum(world_xs) / len(world_xs)
+    flipped_world = [(2 * center - wx, wy) for wx, wy in homography.dest_points]
     return Homography.fit(homography.source_points, flipped_world)

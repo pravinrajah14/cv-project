@@ -4,5 +4,6 @@
   "num_frames": 900,
   "n_matched_points": 794,
   "mean_residual_m": 3.0200905241522693,
+  "direction_flip_applied": true,
   "world_frame": "NGSIM Local_Y (longitudinal, meters) = world_x; Local_X (lateral, meters) = world_y"
 }
