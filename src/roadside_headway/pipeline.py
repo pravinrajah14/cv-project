@@ -23,6 +23,7 @@ def run_pipeline(
     start_frame: int = 0,
     max_frames: int | None = None,
     device: str = "mps",
+    region_margin_frac: float = 1.0,
 ) -> pd.DataFrame:
     """Run detection + tracking + (optional) depth-assisted occlusion handling +
     homography projection over a video, then compute per-lane headway and
@@ -30,6 +31,14 @@ def run_pipeline(
 
     `start_frame`/`max_frames` select a frame range — e.g. to evaluate on
     frames held out from an auto-calibration fit that used an earlier range.
+
+    Detections whose pixel position lies far outside the region the
+    homography was calibrated on are dropped entirely (see
+    `Homography.is_within_calibrated_region`) — e.g. vehicles on an adjacent
+    ramp visible in-frame but never in the calibration data, whose projected
+    position can otherwise explode to nonsense (thousands of meters away)
+    since a homography isn't reliable far past where it was fit.
+    `region_margin_frac` controls how generous that bound is.
     """
     tracker = VehicleTracker(device=device)
     depth_estimator = DepthEstimator(device=device) if use_depth else None
@@ -68,6 +77,9 @@ def run_pipeline(
                     world_pos = extrapolate_constant_velocity(history)
                 else:
                     world_pos = homography.pixel_to_world(det.contact_point)
+
+                if not homography.is_within_calibrated_region(world_pos, margin_frac=region_margin_frac):
+                    continue
                 history.append(world_pos)
 
                 rows.append(

@@ -191,27 +191,42 @@ was set. Numbers land in `results/metrics.json` — not just plots.
 
 ## Results
 
-From the reference run: US-101 camera 4, `0750am-0805am`. Homography fit
-on frames 0–899 (794 matched points, 3.02 m mean fitting residual), evaluated
-on the held-out frames 900–1799 (a different 90-second span the fit never
-saw). Full numbers in `results/metrics.json`.
+Reference run: US-101 camera 4, `0750am-0805am`. Homography fit on frames
+0–899 (794 matched points, 3.02 m mean fitting residual), evaluated on the
+held-out remainder of the clip — frames 900–9550, ~14.25 minutes the fit
+never saw. Full numbers in `results/metrics_full.json`.
 
 | Metric | MAE | MAPE | Bias | n |
 |---|---|---|---|---|
-| Speed | 5.66 m/s (12.7 mph) | 42.2% | −2.63 m/s | 346 |
-| Headway | 15.04 m | 62.9% | −10.50 m | 134 |
+| Speed | 3.92 m/s (8.8 mph) | 39.5% | −1.51 m/s | 4843 |
+| Headway | 13.47 m | 57.4% | −8.48 m | 1825 |
 
-Take these as a first real data point, not a general accuracy claim — see
+A second camera (camera 2, same site/window, independently calibrated) gives
+a rough generalization check:
+
+| Metric | MAE | MAPE | Bias | n |
+|---|---|---|---|---|
+| Speed | *pending* | | | |
+| Headway | *pending* | | | |
+
+(An earlier 90-second sample, frames 900–1799 only, gave speed MAE 5.66 m/s /
+42.2% MAPE and headway MAE 15.04 m / 62.9% MAPE — noisier than the full-span
+numbers above, as expected with ~14x fewer matched points; kept in
+`results/metrics.json` for comparison.)
+
+Take these as real data points, not a general accuracy claim — see
 [Limitations](#limitations) for why: NGSIM's own ground truth carries
 reconstruction noise, the two headway definitions differ systematically
-(the negative bias here is consistent with that, not just error), and this
-covers one camera, one 90-second span, one calibration run. Two bugs were
-caught and fixed only by actually running this evaluation against real
-ground truth — a ground-truth axis mix-up that silently zeroed out every
-match, and a direction-of-travel sign ambiguity inherent to fitting a
-homography from position snapshots alone (both in the git history) — which is
-itself a reason to treat any calibration/validation code, including this
-run's, with some skepticism until it's been exercised end to end.
+(the negative bias here is consistent with that, not just error), and camera
+4's numbers describe frames past the calibration-fitting window but still the
+same camera and site. Three real bugs were caught and fixed only by actually
+running this evaluation against real ground truth — a ground-truth axis
+mix-up that silently zeroed out every match, a direction-of-travel sign
+ambiguity inherent to fitting a homography from position snapshots alone, and
+a video downloader with no retry logic that died mid-download (all in the git
+history) — which is itself a reason to treat any calibration/validation
+code, including this run's, with some skepticism until it's been exercised
+end to end.
 
 ## Out of scope for v1
 

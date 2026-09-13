@@ -108,7 +108,22 @@ def fit_homography_by_matching(
 
     if best_homography is None:
         raise RuntimeError("Failed to converge on any axis-orientation guess")
-    return best_homography, best_stats
+
+    # Final robust pass: the ICP iterations above use plain least squares for
+    # stable, deterministic convergence (RANSAC's randomness can otherwise
+    # destabilize the iteration in a low-sample regime). Applying RANSAC once,
+    # at the end, on the converged matched set purges any remaining bad
+    # correspondences that survived nearest-neighbor thresholding — without
+    # that instability. This matters: a plain fit can have low residual on its
+    # own training points while still being nearly singular (and unreliable
+    # anywhere else) if a few pairs are wrong; RANSAC catches that.
+    robust_homography = Homography.fit(best_homography.source_points, best_homography.dest_points, robust=True)
+    errors = [
+        float(np.hypot(*(np.array(robust_homography.pixel_to_world(px)) - np.array(w))))
+        for px, w in zip(robust_homography.source_points, robust_homography.dest_points)
+    ]
+    final_stats = {"mean_error_m": float(np.mean(errors)), "n_matched": len(robust_homography.source_points)}
+    return robust_homography, final_stats
 
 
 def resolve_direction_ambiguity(
