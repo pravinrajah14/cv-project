@@ -161,10 +161,12 @@ python scripts/calibrate_lanes.py data/sb-camera4-0750am-0805am.avi \
 
 # 4. Run the full pipeline — on a frame range held out from calibration
 #    fitting, so the reported accuracy isn't inflated by evaluating on the
-#    same data the homography was fit to:
+#    same data the homography was fit to. Omit --max-frames to run to the
+#    end of the clip (what produced the Results numbers below); add it back
+#    for a quicker spot-check.
 python scripts/run_pipeline.py data/sb-camera4-0750am-0805am.avi \
     --homography results/homography.json --lanes results/lanes.json \
-    --start-frame 900 --max-frames 900 \
+    --start-frame 900 \
     --out results/trajectories.csv
 
 # 5. Evaluate against NGSIM ground truth
@@ -191,42 +193,58 @@ was set. Numbers land in `results/metrics.json` — not just plots.
 
 ## Results
 
-Reference run: US-101 camera 4, `0750am-0805am`. Homography fit on frames
-0–899 (794 matched points, 3.02 m mean fitting residual), evaluated on the
-held-out remainder of the clip — frames 900–9550, ~14.25 minutes the fit
-never saw. Full numbers in `results/metrics_full.json`.
+Two independently calibrated cameras, same site/window (US-101,
+`0750am-0805am`). Each homography was fit on frames 0–899 and evaluated on
+the held-out remainder of the clip — frames 900–9550, ~14.25 minutes the fit
+never saw. Full numbers in `results/metrics_full.json` (camera 4) and
+`results/metrics_cam2_full.json` (camera 2).
 
-| Metric | MAE | MAPE | Bias | n |
-|---|---|---|---|---|
-| Speed | 3.92 m/s (8.8 mph) | 39.5% | −1.51 m/s | 4843 |
-| Headway | 13.47 m | 57.4% | −8.48 m | 1825 |
+| Camera | Metric | MAE | MAPE | Bias | n |
+|---|---|---|---|---|---|
+| 4 | Speed | 3.92 m/s (8.8 mph) | 39.5% | −1.51 m/s | 4843 |
+| 4 | Headway | 13.47 m | 57.4% | −8.48 m | 1825 |
+| 2 | Speed | 4.68 m/s (10.5 mph) | 33.2% | −3.91 m/s | 9316 |
+| 2 | Headway | 20.04 m | 66.0% | −18.42 m | 6195 |
 
-A second camera (camera 2, same site/window, independently calibrated) gives
-a rough generalization check:
-
-| Metric | MAE | MAPE | Bias | n |
-|---|---|---|---|---|
-| Speed | *pending* | | | |
-| Headway | *pending* | | | |
-
-(An earlier 90-second sample, frames 900–1799 only, gave speed MAE 5.66 m/s /
-42.2% MAPE and headway MAE 15.04 m / 62.9% MAPE — noisier than the full-span
-numbers above, as expected with ~14x fewer matched points; kept in
-`results/metrics.json` for comparison.)
+Both cameras land in the same ballpark (speed MAE 4–5 m/s, headway MAE
+13–20 m, consistently negative bias — expected, see the headway-definition
+mismatch above), which is a reasonable generalization signal. Camera 2's
+headway error is meaningfully worse, and its per-lane breakdown
+(`results/metrics_cam2_full.json`) has one lane with only 90 matched points
+and a much larger MAE than the rest — a rough edge worth noting, not
+explained away, in a scene that's visibly busier (an adjacent ramp/plaza
+generates extra detections; see below).
 
 Take these as real data points, not a general accuracy claim — see
 [Limitations](#limitations) for why: NGSIM's own ground truth carries
-reconstruction noise, the two headway definitions differ systematically
-(the negative bias here is consistent with that, not just error), and camera
-4's numbers describe frames past the calibration-fitting window but still the
-same camera and site. Three real bugs were caught and fixed only by actually
-running this evaluation against real ground truth — a ground-truth axis
-mix-up that silently zeroed out every match, a direction-of-travel sign
-ambiguity inherent to fitting a homography from position snapshots alone, and
-a video downloader with no retry logic that died mid-download (all in the git
-history) — which is itself a reason to treat any calibration/validation
-code, including this run's, with some skepticism until it's been exercised
-end to end.
+reconstruction noise, and this covers one site, one time window, two cameras.
+**Four real bugs were caught only by actually running this evaluation twice**,
+against real ground truth and a second camera — not by code review:
+
+1. A ground-truth axis mix-up (`gt_x_m`/`gt_y_m` swapped) that silently
+   zeroed out every match (n=0 everywhere, no error).
+2. A direction-of-travel sign ambiguity inherent to fitting a homography from
+   position snapshots alone (speeds came out uniformly negative where ground
+   truth was positive) — position-only fitting can't tell which way is
+   "forward."
+3. A video downloader with no retry logic that died mid-download at 338/380MB
+   with no way to resume.
+4. **Found only by adding camera 2**: a plain least-squares homography fit
+   can have a near-singular matrix (det ≈ −3.6×10⁻⁴) — reasonable residual on
+   its own training points, but catastrophically wrong (positions off by tens
+   of thousands of meters) for any pixel outside them — when a handful of
+   wrong nearest-neighbor correspondences survive distance thresholding.
+   Camera 4's fit happened not to trigger this; camera 2's did. Fixed with a
+   RANSAC refit plus an explicit sanity bound
+   (`Homography.is_within_calibrated_region`) that drops predictions far
+   outside the calibrated region regardless of cause.
+
+All four are in the git history. The pattern across all of them: every one
+was invisible from reading the code, and each surfaced only by running the
+full pipeline against real data — first against ground truth at all, then
+against a second camera. That's the argument for treating this run's own
+numbers, and any calibration/validation code, with some ongoing skepticism
+rather than as settled once a first result looks plausible.
 
 ## Out of scope for v1
 
@@ -267,12 +285,22 @@ Read before trusting any number this pipeline produces:
   isolation against a ground truth for "was this the right occluder."
 - **Speed uses only the longitudinal velocity component** — a simplification
   that under-represents speed during a lane change.
-- **Single-camera, single-segment validation.** Results describe this one
-  camera/segment, not the pipeline's general accuracy across conditions.
+- **Two-camera, single-site validation.** Results describe US-101 during one
+  15-minute window on two of its eight cameras — a real generalization check,
+  not a claim about accuracy across sites, weather, or congestion levels.
 - **Auto-calibration's direction check covers longitudinal only.**
   `calibrate_from_gt.py` resolves the direction-of-travel mirror ambiguity
   (see Results) using tracked motion, but doesn't run the equivalent check on
   the lateral axis — a lateral mirror is left undetected if the ICP fit
-  happens to converge to one. It didn't in this run (per-lane metrics came
-  out sane), but that's an empirical observation for this footage, not a
+  happens to converge to one. It didn't in either run (per-lane metrics came
+  out sane on both cameras), but that's an empirical observation, not a
   guarantee for other camera views.
+- **The region-bound safeguard is a heuristic, not a real field-of-view
+  mask.** `Homography.is_within_calibrated_region` rejects predictions far
+  outside the calibrated points' bounding box (expanded by a margin) —
+  it caught camera 2's extrapolation blowup, but a bad prediction that
+  happens to land inside the box (rather than thousands of meters away)
+  would sail through undetected. Camera 2's frame also includes a visually
+  adjacent ramp/plaza area whose vehicles aren't in the tracked ground truth
+  at all — its extra false-positive-prone detections were a direct
+  contributor to that camera's near-singular homography fit.
