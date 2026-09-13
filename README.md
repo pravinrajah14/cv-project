@@ -124,29 +124,53 @@ project permissively.
 
 ## Usage
 
+Two calibration paths exist. Use the ground-truth-anchored one when validating
+against NGSIM (it's what produced the numbers in [Results](#results) below);
+use the manual one for footage with no ground truth available.
+
 ```bash
 # 1. Download data
 python scripts/download_ngsim.py --camera 4 --time-window 0750am-0805am
 
-# 2. Calibrate the ground-plane homography on a reference frame (interactive;
-#    to validate against NGSIM, calibrate directly in NGSIM's coordinate frame —
-#    see the docstring in scripts/calibrate.py)
+# 2a. Calibrate automatically against ground truth (recommended for NGSIM):
+#     tracks our own detector/tracker for --num-frames, matches its pixel
+#     positions against real vehicle positions at the same instants via
+#     iterative nearest-neighbor fitting, and resolves the direction-of-travel
+#     ambiguity (see Limitations) using tracked motion. Needs a
+#     camera-coverage polygon for the chosen camera (US-101 only, all 8
+#     cameras, in evaluation/ngsim_camera_coverage.py).
+python scripts/estimate_time_offset.py --location us-101 --time-window 0750am-0805am
+python scripts/calibrate_from_gt.py data/sb-camera4-0750am-0805am.avi \
+    --camera 4 --gt-csv data/us101_trajectories_0750am-0805am.csv \
+    --video-start-epoch-ms <value from estimate_time_offset.py> --num-frames 900 \
+    --out results/homography.json
+
+# 2b. ...or calibrate manually (interactive; for footage without ground truth).
+#     To still validate against NGSIM this way, calibrate directly in NGSIM's
+#     coordinate frame — see the docstring in scripts/calibrate.py.
 python scripts/calibrate.py data/sb-camera4-0750am-0805am.avi --out results/homography.json
 
-# 3. Define lane boundaries on the same reference frame
+# 3. Define lane boundaries. With ground truth, derive them directly from
+#    real per-lane lateral positions:
+python scripts/derive_lanes_from_gt.py --camera 4 \
+    --gt-csv data/us101_trajectories_0750am-0805am.csv --out results/lanes.json
+
+#    ...or, without ground truth, click them on a reference frame:
 python scripts/calibrate_lanes.py data/sb-camera4-0750am-0805am.avi \
     --homography results/homography.json --out results/lanes.json
 
-# 4. Run the full pipeline
+# 4. Run the full pipeline — on a frame range held out from calibration
+#    fitting, so the reported accuracy isn't inflated by evaluating on the
+#    same data the homography was fit to:
 python scripts/run_pipeline.py data/sb-camera4-0750am-0805am.avi \
     --homography results/homography.json --lanes results/lanes.json \
+    --start-frame 900 --max-frames 900 \
     --out results/trajectories.csv
 
-# 5. Find the ground-truth time anchor and evaluate against NGSIM
-python scripts/estimate_time_offset.py --location us-101 --time-window 0750am-0805am
+# 5. Evaluate against NGSIM ground truth
 python scripts/evaluate.py results/trajectories.csv \
     --gt-csv data/us101_trajectories_0750am-0805am.csv \
-    --video-start-epoch-ms <value from step 5> \
+    --video-start-epoch-ms <value from step 2a> \
     --out results/metrics.json
 ```
 
@@ -165,11 +189,34 @@ threshold) and reports, for both speed and headway:
 broken out overall, by lane, and by whether the depth-based occlusion flag
 was set. Numbers land in `results/metrics.json` — not just plots.
 
+## Results
+
+From the reference run: US-101 camera 4, `0750am-0805am`. Homography fit
+on frames 0–899 (794 matched points, 3.02 m mean fitting residual), evaluated
+on the held-out frames 900–1799 (a different 90-second span the fit never
+saw). Full numbers in `results/metrics.json`.
+
+| Metric | MAE | MAPE | Bias | n |
+|---|---|---|---|---|
+| Speed | 5.66 m/s (12.7 mph) | 42.2% | −2.63 m/s | 346 |
+| Headway | 15.04 m | 62.9% | −10.50 m | 134 |
+
+Take these as a first real data point, not a general accuracy claim — see
+[Limitations](#limitations) for why: NGSIM's own ground truth carries
+reconstruction noise, the two headway definitions differ systematically
+(the negative bias here is consistent with that, not just error), and this
+covers one camera, one 90-second span, one calibration run. Two bugs were
+caught and fixed only by actually running this evaluation against real
+ground truth — a ground-truth axis mix-up that silently zeroed out every
+match, and a direction-of-travel sign ambiguity inherent to fitting a
+homography from position snapshots alone (both in the git history) — which is
+itself a reason to treat any calibration/validation code, including this
+run's, with some skepticism until it's been exercised end to end.
+
 ## Out of scope for v1
 
 - Night / adverse-weather footage (daytime, clear-weather clip only)
 - Multi-camera stitching or hand-off (single camera field of view only)
-- Automatic/learned calibration (manual point-correspondence only)
 - Real-time/streaming performance (offline batch processing)
 - Non-straight road geometry — merges, curves, ramps, intersections (straight
   through-traffic segment only; the default US-101 view must be checked for this)
@@ -207,3 +254,10 @@ Read before trusting any number this pipeline produces:
   that under-represents speed during a lane change.
 - **Single-camera, single-segment validation.** Results describe this one
   camera/segment, not the pipeline's general accuracy across conditions.
+- **Auto-calibration's direction check covers longitudinal only.**
+  `calibrate_from_gt.py` resolves the direction-of-travel mirror ambiguity
+  (see Results) using tracked motion, but doesn't run the equivalent check on
+  the lateral axis — a lateral mirror is left undetected if the ICP fit
+  happens to converge to one. It didn't in this run (per-lane metrics came
+  out sane), but that's an empirical observation for this footage, not a
+  guarantee for other camera views.
