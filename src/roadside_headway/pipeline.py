@@ -20,12 +20,17 @@ def run_pipeline(
     lanes: LaneBoundaries,
     direction: int = 1,
     use_depth: bool = True,
+    start_frame: int = 0,
     max_frames: int | None = None,
     device: str = "mps",
 ) -> pd.DataFrame:
     """Run detection + tracking + (optional) depth-assisted occlusion handling +
     homography projection over a video, then compute per-lane headway and
-    per-track speed. Returns a long-format DataFrame, one row per (frame, track)."""
+    per-track speed. Returns a long-format DataFrame, one row per (frame, track).
+
+    `start_frame`/`max_frames` select a frame range — e.g. to evaluate on
+    frames held out from an auto-calibration fit that used an earlier range.
+    """
     tracker = VehicleTracker(device=device)
     depth_estimator = DepthEstimator(device=device) if use_depth else None
 
@@ -33,17 +38,20 @@ def run_pipeline(
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    if start_frame > 0:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
     rows: list[dict] = []
     world_history: dict[int, list[tuple[float, float]]] = {}
-    frame_idx = 0
+    frame_idx = start_frame
+    end_frame = None if max_frames is None else start_frame + max_frames
 
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            if max_frames is not None and frame_idx >= max_frames:
+            if end_frame is not None and frame_idx >= end_frame:
                 break
 
             detections = tracker.track_frame(frame)

@@ -1,7 +1,7 @@
 import numpy as np
 
 from roadside_headway.calibration.homography import Homography
-from roadside_headway.evaluation.auto_calibrate import fit_homography_by_matching
+from roadside_headway.evaluation.auto_calibrate import fit_homography_by_matching, resolve_direction_ambiguity
 
 
 def test_fit_homography_by_matching_recovers_known_transform_with_noise_and_distractors():
@@ -53,3 +53,47 @@ def test_fit_homography_by_matching_requires_minimum_points():
 
     with pytest.raises(ValueError):
         fit_homography_by_matching({0: [(0, 0), (1, 1)]}, {0: [(0, 0), (1, 1)]})
+
+
+def test_resolve_direction_ambiguity_flips_when_tracks_move_backward():
+    # A homography whose world_x decreases as pixel_x increases -- i.e. tracks
+    # moving toward larger pixel_x (as they would on screen, left to right)
+    # end up moving toward *smaller* world_x, the "wrong" direction.
+    backward_homography = Homography.fit(
+        [(0, 0), (100, 0), (0, 100), (100, 100)],
+        [(50, 0), (0, 0), (50, 10), (0, 10)],
+    )
+    track_pixel_sequences = {
+        1: [(10, 5), (30, 5), (50, 5), (70, 5), (90, 5)],
+        2: [(20, 8), (40, 8), (60, 8), (80, 8)],
+    }
+
+    fixed = resolve_direction_ambiguity(backward_homography, track_pixel_sequences)
+
+    xs = [fixed.pixel_to_world(p)[0] for p in track_pixel_sequences[1]]
+    assert xs[-1] > xs[0]  # now moves toward increasing world_x
+
+
+def test_resolve_direction_ambiguity_leaves_correct_homography_unchanged():
+    forward_homography = Homography.fit(
+        [(0, 0), (100, 0), (0, 100), (100, 100)],
+        [(0, 0), (50, 0), (0, 10), (50, 10)],
+    )
+    track_pixel_sequences = {1: [(10, 5), (30, 5), (50, 5), (70, 5), (90, 5)]}
+
+    result = resolve_direction_ambiguity(forward_homography, track_pixel_sequences)
+
+    assert result.pixel_to_world((10, 5)) == forward_homography.pixel_to_world((10, 5))
+
+
+def test_resolve_direction_ambiguity_ignores_short_tracks():
+    forward_homography = Homography.fit(
+        [(0, 0), (100, 0), (0, 100), (100, 100)],
+        [(0, 0), (50, 0), (0, 10), (50, 10)],
+    )
+    # only 2 points -- below min_track_length, should not influence the decision
+    track_pixel_sequences = {1: [(90, 5), (10, 5)]}
+
+    result = resolve_direction_ambiguity(forward_homography, track_pixel_sequences)
+
+    assert result.pixel_to_world((10, 5)) == forward_homography.pixel_to_world((10, 5))

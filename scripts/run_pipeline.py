@@ -28,6 +28,7 @@ def main() -> None:
     parser.add_argument(
         "--no-depth", action="store_true", help="Skip the depth model (faster; disables occlusion handling)"
     )
+    parser.add_argument("--start-frame", type=int, default=0)
     parser.add_argument("--max-frames", type=int, default=None)
     parser.add_argument("--device", default="mps")
     parser.add_argument("--out", default="results/trajectories.csv")
@@ -42,6 +43,7 @@ def main() -> None:
         lanes=lanes,
         direction=args.direction,
         use_depth=not args.no_depth,
+        start_frame=args.start_frame,
         max_frames=args.max_frames,
         device=args.device,
     )

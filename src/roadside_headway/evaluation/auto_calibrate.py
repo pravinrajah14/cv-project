@@ -109,3 +109,35 @@ def fit_homography_by_matching(
     if best_homography is None:
         raise RuntimeError("Failed to converge on any axis-orientation guess")
     return best_homography, best_stats
+
+
+def resolve_direction_ambiguity(
+    homography: Homography,
+    track_pixel_sequences: dict[int, list[tuple[float, float]]],
+    min_track_length: int = 5,
+) -> Homography:
+    """Static point-position matching (as in `fit_homography_by_matching`)
+    can't distinguish a homography from its mirror image along the direction
+    of travel — both fit instantaneous vehicle positions equally well, since
+    a snapshot of vehicle positions carries no information about which way
+    they're moving. This resolves that using motion instead: for each track
+    with enough points, project its pixel sequence through `homography` and
+    check whether its longitudinal (world_x) position is increasing or
+    decreasing over time. If most tracks move toward decreasing world_x, the
+    homography's longitudinal axis is flipped (refit on the same matched
+    points with world_x negated) so that increasing world_x consistently
+    means "direction of travel" — matching, e.g., NGSIM's Local_Y convention.
+    Returns `homography` unchanged if there isn't a clear majority either way.
+    """
+    signs = []
+    for pixels in track_pixel_sequences.values():
+        if len(pixels) < min_track_length:
+            continue
+        world_xs = [homography.pixel_to_world(p)[0] for p in pixels]
+        signs.append(1 if world_xs[-1] > world_xs[0] else -1)
+
+    if not signs or sum(signs) >= 0:
+        return homography
+
+    flipped_world = [(-wx, wy) for wx, wy in homography.dest_points]
+    return Homography.fit(homography.source_points, flipped_world)

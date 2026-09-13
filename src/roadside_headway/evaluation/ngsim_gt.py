@@ -19,8 +19,12 @@ def load_ground_truth(csv_path: str, video_start_epoch_ms: int) -> pd.DataFrame:
         {
             "vehicle_id": df["vehicle_id"],
             "time_s": (df["global_time"] - video_start_epoch_ms) / 1000.0,
-            "gt_x_m": df["local_x"] * FEET_TO_METERS,
-            "gt_y_m": df["local_y"] * FEET_TO_METERS,
+            # gt_x_m is longitudinal (matches pipeline world_x), gt_y_m is lateral
+            # (matches world_y) — Local_Y is NGSIM's longitudinal coordinate,
+            # Local_X its lateral one, so this is intentionally "crossed" relative
+            # to the CSV's own column names.
+            "gt_x_m": df["local_y"] * FEET_TO_METERS,
+            "gt_y_m": df["local_x"] * FEET_TO_METERS,
             "gt_speed_mps": df["v_vel"] * FEET_TO_METERS,
             "lane_id": df["lane_id"],
             "space_headway_m": df["space_headway"] * FEET_TO_METERS,
