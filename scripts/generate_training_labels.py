@@ -17,6 +17,16 @@ Requires an existing homography for this camera view (e.g. from
 scripts/calibrate_from_gt.py) — used here only to confirm/reject detections
 against ground truth, not refit.
 
+KNOWN BIAS (found empirically, see README Results): --confirm-threshold-m is
+a *fixed* radius, but faster vehicles drift further between the exact
+detection instant and ground truth's 0.1s-quantized timestamp than slow ones
+do, so a fixed radius confirms slow/congested traffic more reliably than
+fast/free-flowing traffic. Fine-tuning on the unmodified output of this
+script measurably skewed a model toward slow-traffic conditions -- much
+better accuracy there, much worse vehicle coverage overall. Before relying
+on this for real fine-tuning, consider a velocity-scaled confirm threshold
+or explicitly resampling for balanced speed coverage across the training set.
+
 Usage:
     python scripts/generate_training_labels.py data/sb-camera4-0750am-0805am.avi \\
         --camera 4 --gt-csv data/us101_trajectories_0750am-0805am.csv \\

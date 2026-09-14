@@ -350,3 +350,33 @@ Read before trusting any number this pipeline produces:
   `--num-frames` remains user-configurable for anyone who wants to explore
   further, but 900 stays the default since a much slower calibration step
   (3.3x the tracking time) bought no clear win.
+- **Fine-tuning the detector: a real, informative failure — a hidden
+  selection bias, not a code bug.** Since neither calibration experiment
+  helped, and detection/tracking noise was the remaining suspect,
+  `scripts/generate_training_labels.py` was built to auto-label training
+  data: run the tracker, keep a detection's real bounding box as a label only
+  if projecting it lands within 4 m of a real ground-truth vehicle at that
+  instant, leave everything else unlabeled (no ground truth exists for pixel
+  boxes here, so this is the only way to get any). Fine-tuned `yolo11s` for
+  12 epochs on ~2,400 auto-labeled camera-4 frames (1,984 confirmed boxes),
+  then recalibrated and re-evaluated on the identical held-out window used
+  throughout. Headline numbers looked like a huge win — speed MAE
+  3.58→1.94 m/s, headway MAE 12.52→6.52 m, both roughly halved — but MAPE
+  got *worse* for both (36.6%→48.5%, 54.7%→77.9%) and total tracked vehicles
+  collapsed from 432 to 180. Checking why: mean ground-truth speed in the
+  fine-tuned model's matched sample was 5.87 m/s vs. the baseline's
+  10.93 m/s — roughly half. The fixed 4 m confirmation radius doesn't
+  account for velocity: a fast vehicle drifts further between the exact
+  detection instant and GT's 0.1 s-quantized timestamp than a slow one does,
+  so it's systematically less likely to land inside a fixed radius. The
+  auto-labeled training set was accidentally skewed toward slow, congested
+  traffic, and the fine-tuned model learned exactly that skew — it got much
+  more confident on the conditions it was biased toward and much less
+  sensitive to fast-moving vehicles, which is why coverage collapsed and why
+  the same absolute error reads as a *worse* percentage against the smaller
+  GT magnitudes left in its narrower sample. Not adopted: this is a
+  different, narrower operating point, not a like-for-like improvement, and
+  reporting the halved MAE numbers alone (without the coverage collapse and
+  MAPE regression) would have been actively misleading. A principled fix
+  would use a velocity-scaled confirmation radius, or resample training
+  frames for balanced speed coverage, before trying this again.
