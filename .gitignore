@@ -13,6 +13,10 @@ data/
 *.pt
 *.pth
 
+# auto-generated training images/labels and ultralytics training runs
+datasets/
+runs/
+
 # keep small validation outputs, ignore large intermediate artifacts
 results/*.mp4
 results/cache/
