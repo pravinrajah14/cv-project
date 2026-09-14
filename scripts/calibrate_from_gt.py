@@ -35,13 +35,17 @@ from roadside_headway.tracking.tracker import VehicleTracker
 
 
 def collect_detections(
-    video_path: str, num_frames: int, device: str
+    video_path: str,
+    num_frames: int,
+    device: str,
+    model_name: str = "yolo11s.pt",
+    vehicle_class_names: set[str] | None = None,
 ) -> tuple[dict[int, list[Detection]], dict[int, list[Detection]]]:
     """Returns (frames_detections, track_detections): the former keyed by
     frame index, the latter by track id. Kept as full Detection objects
     (not points) so the caller can pick a pixel reference point — bbox
     bottom-center vs. leading-edge — after direction of travel is known."""
-    tracker = VehicleTracker(device=device)
+    tracker = VehicleTracker(model_name=model_name, device=device, vehicle_class_names=vehicle_class_names)
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
@@ -82,11 +86,22 @@ def main() -> None:
         "center -- tested on camera 4 and found to trade a small headway improvement for a "
         "meaningfully worse speed estimate; see README limitations before using this)",
     )
+    parser.add_argument("--model", default="yolo11s.pt", help="Detector weights, stock or fine-tuned")
+    parser.add_argument(
+        "--vehicle-class-names",
+        nargs="+",
+        default=None,
+        help="Class names to treat as vehicles (default: car/truck/bus/motorcycle). Pass "
+        "'vehicle' for a model fine-tuned via generate_training_labels.py.",
+    )
     parser.add_argument("--out", default="results/homography.json")
     args = parser.parse_args()
 
+    vehicle_class_names = set(args.vehicle_class_names) if args.vehicle_class_names else None
     print(f"Tracking {args.num_frames} frames of {args.video} ...")
-    frames_detections, track_detections = collect_detections(args.video, args.num_frames, args.device)
+    frames_detections, track_detections = collect_detections(
+        args.video, args.num_frames, args.device, model_name=args.model, vehicle_class_names=vehicle_class_names
+    )
     n_pixel_points = sum(len(v) for v in frames_detections.values())
     print(f"  collected {n_pixel_points} pixel detections across {len(frames_detections)} frames")
 
@@ -134,6 +149,7 @@ def main() -> None:
         json.dumps(
             {
                 "method": "auto_calibrate.fit_homography_by_matching",
+                "model": args.model,
                 "camera": args.camera,
                 "num_frames": args.num_frames,
                 "n_matched_points": stats["n_matched"],

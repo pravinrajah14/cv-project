@@ -25,6 +25,8 @@ def run_pipeline(
     device: str = "mps",
     region_margin_frac: float = 1.0,
     pixel_direction_sign: int | None = None,
+    model_name: str = "yolo11s.pt",
+    vehicle_class_names: set[str] | None = None,
 ) -> pd.DataFrame:
     """Run detection + tracking + (optional) depth-assisted occlusion handling +
     homography projection over a video, then compute per-lane headway and
@@ -49,8 +51,12 @@ def run_pipeline(
     homography would reintroduce the definition mismatch it's meant to fix.
     Leave as None for a homography calibrated with `contact_point` (e.g. via
     manual calibration).
+
+    `model_name`/`vehicle_class_names`: override to use a custom-trained
+    detector (e.g. from fine-tuning on scripts/generate_training_labels.py's
+    output) instead of the stock COCO-pretrained default.
     """
-    tracker = VehicleTracker(device=device)
+    tracker = VehicleTracker(model_name=model_name, device=device, vehicle_class_names=vehicle_class_names)
     depth_estimator = DepthEstimator(device=device) if use_depth else None
 
     cap = cv2.VideoCapture(str(video_path))

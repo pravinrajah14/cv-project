@@ -22,6 +22,7 @@ class VehicleTracker:
         device: str = "mps",
         conf: float = 0.1,
         tracker_cfg: str = "bytetrack.yaml",
+        vehicle_class_names: set[str] | None = None,
     ):
         from ultralytics import YOLO  # imported lazily so this module stays testable without ultralytics installed
 
@@ -29,9 +30,16 @@ class VehicleTracker:
         self.device = device
         self.conf = conf
         self.tracker_cfg = tracker_cfg
-        self._vehicle_class_ids = sorted(
-            idx for idx, name in self.model.names.items() if name in VEHICLE_CLASS_NAMES
-        )
+        # Override for a custom-trained model whose class vocabulary isn't COCO's
+        # (e.g. a single "vehicle" class from scripts/generate_training_labels.py) --
+        # the default set matches nothing there, silently filtering out everything.
+        names = vehicle_class_names if vehicle_class_names is not None else VEHICLE_CLASS_NAMES
+        self._vehicle_class_ids = sorted(idx for idx, name in self.model.names.items() if name in names)
+        if not self._vehicle_class_ids:
+            raise ValueError(
+                f"None of the model's classes ({list(self.model.names.values())}) matched "
+                f"vehicle_class_names={names} -- pass the model's own class names explicitly."
+            )
 
     def track_frame(self, frame: np.ndarray) -> list[Detection]:
         results = self.model.track(

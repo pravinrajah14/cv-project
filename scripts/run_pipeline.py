@@ -59,6 +59,21 @@ def main() -> None:
         "Auto-loaded from <homography>_calibration_meta.json when produced by calibrate_from_gt.py; "
         "only pass this to override that.",
     )
+    parser.add_argument(
+        "--model",
+        default="yolo11s.pt",
+        help="Detector weights -- the stock default, or a fine-tuned .pt (e.g. from "
+        "runs/detect/<name>/weights/best.pt after training on "
+        "scripts/generate_training_labels.py's output)",
+    )
+    parser.add_argument(
+        "--vehicle-class-names",
+        nargs="+",
+        default=None,
+        help="Class names to treat as vehicles (default: car/truck/bus/motorcycle, matching "
+        "stock COCO weights). Pass 'vehicle' for a model fine-tuned via generate_training_labels.py, "
+        "whose single class is named that.",
+    )
     parser.add_argument("--out", default="results/trajectories.csv")
     args = parser.parse_args()
 
@@ -81,6 +96,8 @@ def main() -> None:
         device=args.device,
         region_margin_frac=args.region_margin_frac,
         pixel_direction_sign=pixel_direction_sign,
+        model_name=args.model,
+        vehicle_class_names=set(args.vehicle_class_names) if args.vehicle_class_names else None,
     )
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
