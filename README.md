@@ -201,13 +201,13 @@ never saw. Full numbers in `results/metrics_full.json` (camera 4) and
 
 | Camera | Metric | MAE | MAPE | Bias | n |
 |---|---|---|---|---|---|
-| 4 | Speed | 3.92 m/s (8.8 mph) | 39.5% | −1.51 m/s | 4843 |
-| 4 | Headway | 13.47 m | 57.4% | −8.48 m | 1825 |
+| 4 | Speed | 3.58 m/s (8.0 mph) | 36.6% | −1.31 m/s | 4785 |
+| 4 | Headway | 12.52 m | 54.7% | −6.99 m | 1644 |
 | 2 | Speed | 4.68 m/s (10.5 mph) | 33.2% | −3.91 m/s | 9316 |
 | 2 | Headway | 20.04 m | 66.0% | −18.42 m | 6195 |
 
-Both cameras land in the same ballpark (speed MAE 4–5 m/s, headway MAE
-13–20 m, consistently negative bias — expected, see the headway-definition
+Both cameras land in the same ballpark (speed MAE 3.5–4.7 m/s, headway MAE
+12.5–20 m, consistently negative bias — expected, see the headway-definition
 mismatch above), which is a reasonable generalization signal. Camera 2's
 headway error is meaningfully worse, and its per-lane breakdown
 (`results/metrics_cam2_full.json`) has one lane with only 90 matched points
@@ -245,6 +245,18 @@ full pipeline against real data — first against ground truth at all, then
 against a second camera. That's the argument for treating this run's own
 numbers, and any calibration/validation code, with some ongoing skepticism
 rather than as settled once a first result looks plausible.
+
+**A fifth issue, not in the code at all**: after fixing bug 4, camera 4's
+full-clip re-run was launched *concurrently* with camera 2's — on a 16GB
+machine, one of the two full detection+depth+tracking pipelines got silently
+OOM-killed. No error, exit code 0, just a missing "wrote N rows" line and a
+resource-tracker warning, with the old output file left untouched. That old
+(pre-fix) file was then evaluated and reported as "confirmed unchanged" —
+plausible-looking, wrong, and only caught by noticing the exit-code-0 process
+had no actual success message. Corrected numbers are the ones above (camera
+4's did move slightly: MAE 3.92→3.58 m/s speed, 13.47→12.52 m headway).
+Moral: run one heavy pipeline job at a time on this hardware, and check logs
+for the actual completion message, not just the exit code.
 
 ## Out of scope for v1
 
