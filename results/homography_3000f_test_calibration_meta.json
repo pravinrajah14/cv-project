@@ -1,0 +1,11 @@
+{
+  "method": "auto_calibrate.fit_homography_by_matching",
+  "camera": 4,
+  "num_frames": 3000,
+  "n_matched_points": 1752,
+  "mean_residual_m": 2.499420098101877,
+  "pixel_reference_point": "leading_edge",
+  "pixel_direction_sign": -1,
+  "direction_flip_applied": false,
+  "world_frame": "NGSIM Local_Y (longitudinal, meters) = world_x; Local_X (lateral, meters) = world_y"
+}

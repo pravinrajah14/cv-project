@@ -93,6 +93,15 @@ def main() -> None:
     parser.add_argument("--video-start-epoch-ms", type=int, required=True)
     parser.add_argument("--num-frames", type=int, default=900, help="How many video frames to use (default: 90s)")
     parser.add_argument("--device", default="mps")
+    parser.add_argument(
+        "--pixel-reference",
+        choices=["contact", "leading_edge"],
+        default="contact",
+        help="Pixel reference point for fitting: 'contact' (bbox bottom-center, the default -- "
+        "matches run_pipeline.py's default) or 'leading_edge' (bbox leading edge at vertical "
+        "center -- tested on camera 4 and found to trade a small headway improvement for a "
+        "meaningfully worse speed estimate; see README limitations before using this)",
+    )
     parser.add_argument("--out", default="results/homography.json")
     args = parser.parse_args()
 
@@ -106,17 +115,17 @@ def main() -> None:
     )
     print(f"  estimated pixel-space direction of travel: {'+x' if direction_sign > 0 else '-x'}")
 
-    # Leading-edge-at-vertical-center is a better geometric match than
-    # bottom-center to NGSIM's front-center ground truth on this near-overhead
-    # camera (see Detection.leading_edge_point) -- used for both the ICP
-    # matching input and the direction-ambiguity check below, so calibration
-    # and its own sanity check use a consistent reference point.
-    frames_pixel_points = {
-        frame_idx: [d.leading_edge_point(direction_sign) for d in dets] for frame_idx, dets in frames_detections.items()
-    }
-    track_pixel_sequences = {
-        tid: [d.leading_edge_point(direction_sign) for d in dets] for tid, dets in track_detections.items()
-    }
+    if args.pixel_reference == "leading_edge":
+
+        def pixel_point(d):
+            return d.leading_edge_point(direction_sign)
+    else:
+
+        def pixel_point(d):
+            return d.contact_point
+
+    frames_pixel_points = {frame_idx: [pixel_point(d) for d in dets] for frame_idx, dets in frames_detections.items()}
+    track_pixel_sequences = {tid: [pixel_point(d) for d in dets] for tid, dets in track_detections.items()}
 
     print(f"Loading ground truth for camera {args.camera} ...")
     frames_world_points = collect_world_points(args.gt_csv, args.camera, args.video_start_epoch_ms, args.num_frames)
@@ -147,8 +156,10 @@ def main() -> None:
                 "num_frames": args.num_frames,
                 "n_matched_points": stats["n_matched"],
                 "mean_residual_m": stats["mean_error_m"],
-                "pixel_reference_point": "leading_edge",
-                "pixel_direction_sign": direction_sign,
+                "pixel_reference_point": args.pixel_reference,
+                # Only meaningful (and only used by run_pipeline.py) when pixel_reference is
+                # leading_edge; None here makes it correctly fall back to contact_point.
+                "pixel_direction_sign": direction_sign if args.pixel_reference == "leading_edge" else None,
                 "direction_flip_applied": flipped,
                 "world_frame": "NGSIM Local_Y (longitudinal, meters) = world_x; Local_X (lateral, meters) = world_y",
             },
