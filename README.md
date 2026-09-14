@@ -316,3 +316,20 @@ Read before trusting any number this pipeline produces:
   adjacent ramp/plaza area whose vehicles aren't in the tracked ground truth
   at all — its extra false-positive-prone detections were a direct
   contributor to that camera's near-singular homography fit.
+- **A calibration-accuracy experiment that didn't pan out, kept in the code
+  anyway.** `Detection.leading_edge_point` (bbox leading edge at vertical
+  center, picked via `estimate_pixel_direction_sign`) was added on the
+  reasoning that it's a closer geometric match to NGSIM's front-center
+  definition than `contact_point` (bottom-center) for this near-overhead
+  camera. Tested on camera 4: fitting residual improved slightly
+  (2.73→2.66 m) and headway MAE improved slightly (12.52→11.74 m), but speed
+  MAE got meaningfully *worse* (3.58→4.54 m/s, +27%) — a single bbox edge is
+  noisier frame-to-frame than the box center (detection width jitters at this
+  confidence threshold independently of position), and speed is a finite
+  difference, which amplifies that noise more than headway's absolute-position
+  alignment benefits from the better definitional match. Net effect: a wash,
+  not a win, so it's off by default (`pixel_direction_sign=None` uses
+  `contact_point` as before) — but it's a real, tested, documented option
+  (`run_pipeline.py --pixel-direction-sign`) for anyone who wants to try
+  pairing it with more aggressive smoothing, which might recover the speed
+  cost while keeping the headway gain.
