@@ -11,6 +11,8 @@ is the camera's coverage quadrilateral; camera IDs match the video filenames
 
 from __future__ import annotations
 
+FEET_TO_METERS = 0.3048
+
 CAMERA_COVERAGE_POLYGONS: dict[int, list[tuple[float, float]]] = {
     1: [
         (6452518.52083978, 1872117.863341065),
@@ -73,3 +75,25 @@ def rows_in_camera_view(df, camera: int, global_x_col: str = "global_x", global_
     polygon = Path(CAMERA_COVERAGE_POLYGONS[camera])
     points = df[[global_x_col, global_y_col]].to_numpy()
     return polygon.contains_points(points)
+
+
+def collect_world_points_by_frame(
+    gt_csv: str, camera: int, video_start_epoch_ms: int, num_frames: int
+) -> dict[int, list[tuple[float, float]]]:
+    """Ground-truth vehicle world positions (meters; world_x=longitudinal,
+    world_y=lateral) visible in a camera's coverage, keyed by video frame
+    index — for matching against our own detections at the same instant."""
+    import pandas as pd
+
+    df = pd.read_csv(gt_csv)
+    df.columns = [c.strip().lower() for c in df.columns]
+    df = df[rows_in_camera_view(df, camera)]
+
+    frames_world_points: dict[int, list[tuple[float, float]]] = {}
+    for frame_idx in range(num_frames):
+        global_time = video_start_epoch_ms + frame_idx * 100
+        rows = df[df["global_time"] == global_time]
+        points = list(zip(rows["local_y"] * FEET_TO_METERS, rows["local_x"] * FEET_TO_METERS))
+        if points:
+            frames_world_points[frame_idx] = points
+    return frames_world_points

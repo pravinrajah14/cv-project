@@ -23,7 +23,6 @@ import json
 from pathlib import Path
 
 import cv2
-import pandas as pd
 
 from roadside_headway.detection.detector import Detection
 from roadside_headway.evaluation.auto_calibrate import (
@@ -31,10 +30,8 @@ from roadside_headway.evaluation.auto_calibrate import (
     fit_homography_by_matching,
     resolve_direction_ambiguity,
 )
-from roadside_headway.evaluation.ngsim_camera_coverage import rows_in_camera_view
+from roadside_headway.evaluation.ngsim_camera_coverage import collect_world_points_by_frame
 from roadside_headway.tracking.tracker import VehicleTracker
-
-FEET_TO_METERS = 0.3048
 
 
 def collect_detections(
@@ -66,23 +63,6 @@ def collect_detections(
     finally:
         cap.release()
     return frames_detections, track_detections
-
-
-def collect_world_points(
-    gt_csv: str, camera: int, video_start_epoch_ms: int, num_frames: int
-) -> dict[int, list[tuple[float, float]]]:
-    df = pd.read_csv(gt_csv)
-    df.columns = [c.strip().lower() for c in df.columns]
-    df = df[rows_in_camera_view(df, camera)]
-
-    frames_world_points: dict[int, list[tuple[float, float]]] = {}
-    for frame_idx in range(num_frames):
-        global_time = video_start_epoch_ms + frame_idx * 100
-        rows = df[df["global_time"] == global_time]
-        points = list(zip(rows["local_y"] * FEET_TO_METERS, rows["local_x"] * FEET_TO_METERS))
-        if points:
-            frames_world_points[frame_idx] = points
-    return frames_world_points
 
 
 def main() -> None:
@@ -128,7 +108,9 @@ def main() -> None:
     track_pixel_sequences = {tid: [pixel_point(d) for d in dets] for tid, dets in track_detections.items()}
 
     print(f"Loading ground truth for camera {args.camera} ...")
-    frames_world_points = collect_world_points(args.gt_csv, args.camera, args.video_start_epoch_ms, args.num_frames)
+    frames_world_points = collect_world_points_by_frame(
+        args.gt_csv, args.camera, args.video_start_epoch_ms, args.num_frames
+    )
     n_world_points = sum(len(v) for v in frames_world_points.values())
     print(f"  found {n_world_points} ground-truth vehicle-instants in this camera's coverage")
 
