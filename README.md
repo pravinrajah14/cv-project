@@ -333,3 +333,20 @@ Read before trusting any number this pipeline produces:
   (`run_pipeline.py --pixel-direction-sign`) for anyone who wants to try
   pairing it with more aggressive smoothing, which might recover the speed
   cost while keeping the headway gain.
+- **More calibration frames: also a wash, for an interesting reason.**
+  Tried `--num-frames 3000` (vs. the default 900) on camera 4, controlling
+  for the frame-range confound by evaluating both against the identical
+  held-out window (frame ≥ 3000) rather than each against its own leftover
+  frames. Fitting residual improved clearly (2.73→2.51 m, with 1571 matched
+  points instead of 608 — a much better-conditioned fit) and n roughly
+  doubled downstream, but the accuracy metrics moved in mixed directions:
+  speed MAE got slightly *worse* (3.42→3.77 m/s) while its MAPE and bias
+  improved; headway MAE improved slightly (12.57→12.19 m) while its MAPE got
+  slightly worse. No metric moved by more than ~10%, in either direction.
+  Reading: fitting-residual quality is not the accuracy bottleneck here — the
+  4-5x larger source of error (detection/tracking noise, NGSIM's own GT
+  noise floor, the contact-point-vs-front-center mismatch) doesn't shrink
+  just because the homography fits its own training points better.
+  `--num-frames` remains user-configurable for anyone who wants to explore
+  further, but 900 stays the default since a much slower calibration step
+  (3.3x the tracking time) bought no clear win.
