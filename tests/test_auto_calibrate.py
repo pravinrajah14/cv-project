@@ -2,7 +2,11 @@ import numpy as np
 import pytest
 
 from roadside_headway.calibration.homography import Homography
-from roadside_headway.evaluation.auto_calibrate import fit_homography_by_matching, resolve_direction_ambiguity
+from roadside_headway.evaluation.auto_calibrate import (
+    estimate_pixel_direction_sign,
+    fit_homography_by_matching,
+    resolve_direction_ambiguity,
+)
 
 
 def test_fit_homography_by_matching_recovers_known_transform_with_noise_and_distractors():
@@ -104,3 +108,29 @@ def test_resolve_direction_ambiguity_ignores_short_tracks():
     result = resolve_direction_ambiguity(forward_homography, track_pixel_sequences)
 
     assert result.pixel_to_world((10, 5)) == forward_homography.pixel_to_world((10, 5))
+
+
+def test_estimate_pixel_direction_sign_majority_positive():
+    sequences = {
+        1: [(10, 5), (30, 5), (50, 5), (70, 5), (90, 5)],  # increasing
+        2: [(20, 8), (40, 8), (60, 8), (80, 8), (100, 8)],  # increasing
+        3: [(90, 3), (10, 3), (5, 3), (2, 3), (1, 3)],  # decreasing (minority)
+    }
+    assert estimate_pixel_direction_sign(sequences) == 1
+
+
+def test_estimate_pixel_direction_sign_majority_negative():
+    sequences = {
+        1: [(90, 5), (70, 5), (50, 5), (30, 5), (10, 5)],
+        2: [(100, 8), (80, 8), (60, 8), (40, 8), (20, 8)],
+    }
+    assert estimate_pixel_direction_sign(sequences) == -1
+
+
+def test_estimate_pixel_direction_sign_ignores_short_tracks():
+    sequences = {1: [(90, 5), (10, 5)]}  # only 2 points, below default min_track_length
+    assert estimate_pixel_direction_sign(sequences) == 1  # falls back to default
+
+
+def test_estimate_pixel_direction_sign_empty_input():
+    assert estimate_pixel_direction_sign({}) == 1

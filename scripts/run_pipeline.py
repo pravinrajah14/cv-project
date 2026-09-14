@@ -12,11 +12,22 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 from roadside_headway.calibration.homography import Homography
 from roadside_headway.calibration.lanes import LaneBoundaries
 from roadside_headway.pipeline import run_pipeline
+
+
+def _load_pixel_direction_sign(homography_path: str) -> int | None:
+    """Auto-loads pixel_direction_sign from the calibration metadata file
+    scripts/calibrate_from_gt.py writes alongside the homography, so it's
+    never out of sync with what the homography was actually fit against."""
+    meta_path = Path(homography_path).with_name(Path(homography_path).stem + "_calibration_meta.json")
+    if not meta_path.exists():
+        return None
+    return json.loads(meta_path.read_text()).get("pixel_direction_sign")
 
 
 def main() -> None:
@@ -39,11 +50,25 @@ def main() -> None:
         "region expanded by this fraction of its span (guards against homography "
         "extrapolation blowup for e.g. vehicles on an adjacent ramp)",
     )
+    parser.add_argument(
+        "--pixel-direction-sign",
+        type=int,
+        default=None,
+        choices=[-1, 1],
+        help="Override the pixel reference point convention (see pipeline.run_pipeline docstring). "
+        "Auto-loaded from <homography>_calibration_meta.json when produced by calibrate_from_gt.py; "
+        "only pass this to override that.",
+    )
     parser.add_argument("--out", default="results/trajectories.csv")
     args = parser.parse_args()
 
     homography = Homography.load(args.homography)
     lanes = LaneBoundaries.load(args.lanes)
+    pixel_direction_sign = args.pixel_direction_sign
+    if pixel_direction_sign is None:
+        pixel_direction_sign = _load_pixel_direction_sign(args.homography)
+        if pixel_direction_sign is not None:
+            print(f"Using pixel_direction_sign={pixel_direction_sign} from calibration metadata")
 
     df = run_pipeline(
         args.video,
@@ -55,6 +80,7 @@ def main() -> None:
         max_frames=args.max_frames,
         device=args.device,
         region_margin_frac=args.region_margin_frac,
+        pixel_direction_sign=pixel_direction_sign,
     )
 
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)

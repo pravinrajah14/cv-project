@@ -5,6 +5,23 @@ import numpy as np
 from roadside_headway.calibration.homography import Homography
 
 
+def estimate_pixel_direction_sign(
+    track_pixel_sequences: dict[int, list[tuple[float, float]]], min_track_length: int = 5
+) -> int:
+    """Net pixel-x direction of travel across tracks (majority vote) — for
+    picking which bbox edge `Detection.leading_edge_point` treats as the
+    front. +1 if vehicles move toward increasing pixel-x on screen, -1
+    otherwise. Assumes single-direction traffic in frame (true for NGSIM's
+    per-camera views, which each cover one direction of one corridor); a
+    scene with two-way traffic would need a per-track sign instead of one
+    global constant.
+    """
+    votes = [1 if pts[-1][0] > pts[0][0] else -1 for pts in track_pixel_sequences.values() if len(pts) >= min_track_length]
+    if not votes:
+        return 1
+    return 1 if sum(votes) >= 0 else -1
+
+
 def _nearest_neighbor_pairs(
     pixel_points: list[tuple[float, float]],
     world_points: list[tuple[float, float]],

@@ -25,26 +25,32 @@ from pathlib import Path
 import cv2
 import pandas as pd
 
-from roadside_headway.evaluation.auto_calibrate import fit_homography_by_matching, resolve_direction_ambiguity
+from roadside_headway.detection.detector import Detection
+from roadside_headway.evaluation.auto_calibrate import (
+    estimate_pixel_direction_sign,
+    fit_homography_by_matching,
+    resolve_direction_ambiguity,
+)
 from roadside_headway.evaluation.ngsim_camera_coverage import rows_in_camera_view
 from roadside_headway.tracking.tracker import VehicleTracker
 
 FEET_TO_METERS = 0.3048
 
 
-def collect_pixel_points(
+def collect_detections(
     video_path: str, num_frames: int, device: str
-) -> tuple[dict[int, list[tuple[float, float]]], dict[int, list[tuple[float, float]]]]:
-    """Returns (frames_pixel_points, track_pixel_sequences): the former keyed
-    by frame index (for ICP position matching), the latter by track id (for
-    `resolve_direction_ambiguity`, which needs motion, not just position)."""
+) -> tuple[dict[int, list[Detection]], dict[int, list[Detection]]]:
+    """Returns (frames_detections, track_detections): the former keyed by
+    frame index, the latter by track id. Kept as full Detection objects
+    (not points) so the caller can pick a pixel reference point — bbox
+    bottom-center vs. leading-edge — after direction of travel is known."""
     tracker = VehicleTracker(device=device)
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise FileNotFoundError(f"Could not open video: {video_path}")
 
-    frames_pixel_points: dict[int, list[tuple[float, float]]] = {}
-    track_pixel_sequences: dict[int, list[tuple[float, float]]] = {}
+    frames_detections: dict[int, list[Detection]] = {}
+    track_detections: dict[int, list[Detection]] = {}
     frame_idx = 0
     try:
         while frame_idx < num_frames:
@@ -52,14 +58,14 @@ def collect_pixel_points(
             if not ok:
                 break
             detections = tracker.track_frame(frame)
-            frames_pixel_points[frame_idx] = [d.contact_point for d in detections]
+            frames_detections[frame_idx] = detections
             for d in detections:
                 if d.track_id is not None:
-                    track_pixel_sequences.setdefault(d.track_id, []).append(d.contact_point)
+                    track_detections.setdefault(d.track_id, []).append(d)
             frame_idx += 1
     finally:
         cap.release()
-    return frames_pixel_points, track_pixel_sequences
+    return frames_detections, track_detections
 
 
 def collect_world_points(
@@ -91,9 +97,26 @@ def main() -> None:
     args = parser.parse_args()
 
     print(f"Tracking {args.num_frames} frames of {args.video} ...")
-    frames_pixel_points, track_pixel_sequences = collect_pixel_points(args.video, args.num_frames, args.device)
-    n_pixel_points = sum(len(v) for v in frames_pixel_points.values())
-    print(f"  collected {n_pixel_points} pixel detections across {len(frames_pixel_points)} frames")
+    frames_detections, track_detections = collect_detections(args.video, args.num_frames, args.device)
+    n_pixel_points = sum(len(v) for v in frames_detections.values())
+    print(f"  collected {n_pixel_points} pixel detections across {len(frames_detections)} frames")
+
+    direction_sign = estimate_pixel_direction_sign(
+        {tid: [d.contact_point for d in dets] for tid, dets in track_detections.items()}
+    )
+    print(f"  estimated pixel-space direction of travel: {'+x' if direction_sign > 0 else '-x'}")
+
+    # Leading-edge-at-vertical-center is a better geometric match than
+    # bottom-center to NGSIM's front-center ground truth on this near-overhead
+    # camera (see Detection.leading_edge_point) -- used for both the ICP
+    # matching input and the direction-ambiguity check below, so calibration
+    # and its own sanity check use a consistent reference point.
+    frames_pixel_points = {
+        frame_idx: [d.leading_edge_point(direction_sign) for d in dets] for frame_idx, dets in frames_detections.items()
+    }
+    track_pixel_sequences = {
+        tid: [d.leading_edge_point(direction_sign) for d in dets] for tid, dets in track_detections.items()
+    }
 
     print(f"Loading ground truth for camera {args.camera} ...")
     frames_world_points = collect_world_points(args.gt_csv, args.camera, args.video_start_epoch_ms, args.num_frames)
@@ -124,6 +147,8 @@ def main() -> None:
                 "num_frames": args.num_frames,
                 "n_matched_points": stats["n_matched"],
                 "mean_residual_m": stats["mean_error_m"],
+                "pixel_reference_point": "leading_edge",
+                "pixel_direction_sign": direction_sign,
                 "direction_flip_applied": flipped,
                 "world_frame": "NGSIM Local_Y (longitudinal, meters) = world_x; Local_X (lateral, meters) = world_y",
             },

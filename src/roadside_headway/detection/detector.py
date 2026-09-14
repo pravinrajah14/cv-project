@@ -18,11 +18,32 @@ class Detection:
     def contact_point(self) -> tuple[float, float]:
         """Bottom-center of the box: proxy for the vehicle's ground-contact point.
 
+        Designed for a typical oblique roadside camera, where the bottom edge
+        of the box is the part of the vehicle closest to the camera. For a
+        near-overhead camera (like NGSIM's) this is the wrong geometric
+        intuition — see `leading_edge_point` below, which is a better fit for
+        that case specifically.
+
         This is an approximation (varies with vehicle type/pose/camera angle) —
         see the README limitations section.
         """
         x1, y1, x2, y2 = self.bbox
         return ((x1 + x2) / 2.0, y2)
+
+    def leading_edge_point(self, direction_sign: int) -> tuple[float, float]:
+        """The box's leading edge (in the direction of travel) at vertical
+        center — for a near-overhead camera where pixel-x is roughly
+        longitudinal and pixel-y roughly lateral, this is a much closer
+        geometric match to NGSIM's front-center ground-truth definition than
+        `contact_point`: it's centered on the lane laterally (not offset by
+        half the box height, as bottom-center is) and picks the front rather
+        than an arbitrary edge. `direction_sign` is +1 if vehicles move
+        toward increasing pixel-x on screen, -1 otherwise — see
+        `auto_calibrate.estimate_pixel_direction_sign`.
+        """
+        x1, y1, x2, y2 = self.bbox
+        y_center = (y1 + y2) / 2.0
+        return (x2, y_center) if direction_sign > 0 else (x1, y_center)
 
 
 class VehicleDetector:

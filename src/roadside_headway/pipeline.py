@@ -24,6 +24,7 @@ def run_pipeline(
     max_frames: int | None = None,
     device: str = "mps",
     region_margin_frac: float = 1.0,
+    pixel_direction_sign: int | None = None,
 ) -> pd.DataFrame:
     """Run detection + tracking + (optional) depth-assisted occlusion handling +
     homography projection over a video, then compute per-lane headway and
@@ -39,6 +40,15 @@ def run_pipeline(
     position can otherwise explode to nonsense (thousands of meters away)
     since a homography isn't reliable far past where it was fit.
     `region_margin_frac` controls how generous that bound is.
+
+    `pixel_direction_sign`: if set (+1 or -1), uses `Detection.leading_edge_point`
+    instead of `Detection.contact_point` as the pixel reference — must match
+    whatever the homography was calibrated against (see
+    `scripts/calibrate_from_gt.py`'s `pixel_direction_sign` output), since
+    projecting with a different reference point than the one used to fit the
+    homography would reintroduce the definition mismatch it's meant to fix.
+    Leave as None for a homography calibrated with `contact_point` (e.g. via
+    manual calibration).
     """
     tracker = VehicleTracker(device=device)
     depth_estimator = DepthEstimator(device=device) if use_depth else None
@@ -73,10 +83,15 @@ def run_pipeline(
                 tid = det.track_id
                 history = world_history.setdefault(tid, [])
 
+                pixel_point = (
+                    det.leading_edge_point(pixel_direction_sign)
+                    if pixel_direction_sign is not None
+                    else det.contact_point
+                )
                 if tid in occluded and len(history) >= 2:
                     world_pos = extrapolate_constant_velocity(history)
                 else:
-                    world_pos = homography.pixel_to_world(det.contact_point)
+                    world_pos = homography.pixel_to_world(pixel_point)
 
                 if not homography.is_within_calibrated_region(world_pos, margin_frac=region_margin_frac):
                     continue
