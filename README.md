@@ -1,18 +1,95 @@
 # Roadside Vehicle Headway Estimation
 
 Estimate real-world vehicle **headway** (following distance to the vehicle
-ahead in the same lane) and per-vehicle **speed** from a single fixed,
-elevated/oblique roadside camera — no LiDAR, no 3D annotations, no stereo.
+ahead in the same lane) and per-vehicle **speed** from a single fixed roadside
+traffic camera — no LiDAR, no stereo, no manual per-scene tuning beyond what a
+script does automatically. It's a pivot from an earlier idea (2D detector +
+monocular depth → pseudo-3D boxes for a *vehicle-mounted* camera): for a
+**fixed** camera the geometry never changes, so a one-time **ground-plane
+homography** recovers real-world position directly, and depth is demoted to
+an auxiliary occlusion signal (see [Depth's role](#depths-role-auxiliary-not-primary)).
+This project prioritizes **honest validation over polish** — every accuracy
+number is checked against real, independent ground truth on data the
+calibration never saw, and [Results](#results) documents several "this looked
+like a win, then wasn't" experiments in full rather than reporting only the
+ones that worked.
 
-This is a variant of an earlier idea (2D detector + monocular depth →
-pseudo-3D boxes for a *vehicle-mounted* camera, validated on nuScenes-mini).
-For a **fixed** camera, the geometry is different in one important way: since
-the camera never moves, real-world position along the road is recovered from
-a **ground-plane homography** applied to each vehicle's road-contact point —
-not from monocular depth. Depth is kept in the pipeline, but only as an
-**auxiliary** signal (see [Depth's role](#depths-role-auxiliary-not-primary)
-below), which is a deliberate departure from the vehicle-mounted version of
-this idea.
+## Status
+
+**Working, verified end to end** — not just "the code runs," but checked
+against real data at every stage:
+- Full pipeline (detect → track → calibrate → assign lanes → headway/speed)
+  runs on real NGSIM footage and produces non-garbage numbers
+- Automated, ground-truth-anchored calibration — no manual point-clicking
+  needed for NGSIM footage specifically
+- Validated against real ground truth on **two independently calibrated
+  cameras**, each on a held-out evaluation window the calibration never saw
+  (see [Results](#results) for the actual numbers — they're modest, not great)
+- 63 unit tests, all passing, covering every pure-logic module without
+  needing the video/model downloads
+
+**Explored and explicitly not adopted** — kept in the code as tested,
+documented, off-by-default options, not deleted, because the *why it didn't
+work* is as informative as a feature that did (full writeups in
+[Limitations](#limitations)):
+- An alternate pixel reference point (`leading_edge_point`) for calibration
+- Larger calibration frame counts
+- Fine-tuning the detector on auto-labeled data — this one surfaced a real
+  methodological bias in the auto-labeling process itself, not just a null result
+
+**Planned, not started:**
+- BrnoCompSpeed as a second, independent speed-only validation dataset —
+  requires emailing the dataset author for access; not pursued
+- A third NGSIM camera, or the full 45-minute dataset across all three time
+  windows — would strengthen the generalization claim further
+
+**Deliberately out of scope for v1** (not "todo" — see
+[below](#out-of-scope-for-v1) for the full list): night/adverse-weather
+footage, multi-camera stitching, real-time performance, non-straight road
+geometry, long-occlusion re-identification.
+
+## Project structure
+
+```
+roadside-headway/
+├── src/roadside_headway/
+│   ├── pipeline.py                   # end-to-end orchestration: video in, trajectory+headway+speed table out
+│   ├── detection/detector.py         # Detection dataclass, YOLO wrapper, pixel-reference-point logic
+│   ├── tracking/
+│   │   ├── tracker.py                # ByteTrack wrapper (VehicleTracker); supports custom fine-tuned weights
+│   │   └── occlusion.py              # depth-based occlusion check between overlapping boxes
+│   ├── depth/depth_model.py          # Depth Anything V2 wrapper — auxiliary occlusion signal, not primary distance
+│   ├── calibration/
+│   │   ├── homography.py             # pixel<->world mapping; RANSAC-robust fit; calibrated-region bounds check
+│   │   └── lanes.py                  # lane boundaries + lateral-position-to-lane assignment
+│   ├── headway/
+│   │   ├── compute.py                # per-lane vehicle ordering, headway (gap-to-lead-vehicle) computation
+│   │   └── trajectory.py             # position smoothing, speed via finite difference, occlusion extrapolation
+│   └── evaluation/                   # NGSIM-specific: ground truth loading, matching, metrics, camera geometry
+│       ├── auto_calibrate.py         # ICP-style homography fitting from detection<->ground-truth correspondences
+│       ├── ngsim_gt.py               # ground-truth unit conversion, prediction-to-GT matching, MAE/MAPE/bias
+│       ├── ngsim_sites.py            # per-site collection date/time-window metadata
+│       └── ngsim_camera_coverage.py  # per-camera field-of-view polygons for US-101
+├── scripts/                          # CLI entry points, roughly one per pipeline stage
+│   ├── download_ngsim.py             # fetch NGSIM video + ground-truth CSV (resumable, retrying)
+│   ├── estimate_time_offset.py       # find the ground-truth timestamp matching video frame 0
+│   ├── calibrate.py                  # manual, click-based homography calibration
+│   ├── calibrate_from_gt.py          # automated, ground-truth-anchored homography calibration (used for Results)
+│   ├── calibrate_lanes.py            # manual, click-based lane-boundary definition
+│   ├── derive_lanes_from_gt.py       # automated lane-boundary definition from ground truth (used for Results)
+│   ├── run_pipeline.py               # run the full pipeline on a video, write a trajectories CSV
+│   ├── evaluate.py                   # match predictions to ground truth, compute MAE/MAPE/bias
+│   └── generate_training_labels.py   # auto-label frames for detector fine-tuning (see Limitations for its bias)
+├── tests/                            # 63 unit tests, one file per module; all offline/synthetic, no downloads needed
+├── results/                          # committed: calibration files, trajectory CSVs, metrics from this README's Results
+├── data/                             # gitignored — downloaded video/ground-truth CSVs land here
+├── pyproject.toml                    # dependencies and package config
+└── LICENSE                           # MIT (this code only — see the AGPL note under Setup for one dependency)
+```
+
+No reorganization was needed for this audit — the layout above is already how
+the repo is arranged (`src/`, `scripts/`, `tests/`, `results/` are already
+separated with no stray files at the root beyond config).
 
 ## Pipeline
 
@@ -121,6 +198,23 @@ backend.
 **License note**: Ultralytics (YOLO11) is AGPL-3.0-licensed. Fine for a
 research/portfolio repo; worth knowing if you ever want to relicense this
 project permissively.
+
+## Quickstart
+
+Two tiers, depending on whether you want to see the numbers or actually
+regenerate them:
+
+**Instant** — no download, no GPU work, ~2 seconds:
+```bash
+pytest                          # 63 tests, verifies every pure-logic module
+cat results/metrics_full.json   # the headline numbers from Results below, already computed and committed
+```
+
+**Full reproduction** — a real time cost, not a "few commands" shortcut: a
+~380 MB video download, then a calibration step and a full detect-track-
+calibrate-evaluate pass that takes 15–40 minutes on an M3. This actually
+re-derives the Results numbers from raw footage rather than reading the
+committed files — see [Usage](#usage) below for the exact commands.
 
 ## Usage
 
